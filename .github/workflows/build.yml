@@ -1,57 +1,80 @@
-name: Vvflow CI
+name: Vvflow Linux CI
 
 on: push
 
 jobs:
-  build-ubuntu-bionic:
-    runs-on: ubuntu-18.04
+  build:
+    strategy:
+      matrix:
+        include:
+          - {distro: ubuntu, version: bionic}
+          - {distro: ubuntu, version: focal}
+          - {distro: debian, version: jessie}
+    runs-on: ubuntu-latest
+    container: ${{ matrix.distro }}:${{ matrix.version }}
     env:
-      APT_PACKAGES: liblapack-dev
+      APT_PACKAGES: curl liblapack-dev
     steps:
-    - name: Git checkout
-      uses: actions/checkout@v2
-      with:
-        fetch-depth: 0
-
     - name: Install apt packages
       run: |
         sudo apt-get install ${APT_PACKAGES}
 
-    - name: Cache pip packages
-      id: cache-pip
-      uses: actions/cache@v2
-      with:
-        path: ~/.cache/pip
-        key: bionic-pip-${{ hashFiles('**/requirements.txt') }}
-        restore-keys: bionic-pip-
-
-    - name: Install pip packages
-      if: steps.cache-pip.outputs.cache-hit != 'true'
+    - name: Test upload
       run: |
-        pip3 install -r pytest/requirements.txt
+        curl -u "${{ secrets.PACKAGECLOUD_TOKEN }}:"
+        https://packagecloud.io/api/v1/distributions.json
+        | jq '.deb[] | select (.index_name == "${{ matrix.distro }}")'
+        | jq '.versions[] | select (.index_name == "${{ matrix.version }}")'
+        | jq '.id' > distro_version_id
+        &&
+        echo "${{ matrix.distro }}:${{ matrix.version }} -> $(cat distro_version_id)""
+      # curl -u "${{ secrets.PACKAGECLOUD_TOKEN }}:"
+      # -F "package[distro_version_id]=190"
+      # -F "package[package_file]=@$(ls build/deb/vvflow-*.deb | head -n1)"
+      # -v https://packagecloud.io/api/v1/repos/vvflow/nightly/packages.json
 
-    - name: Cache CMakeFiles
-      uses: actions/cache@v2
-      with:
-        path: |
-          build
-          ~build/deb
-        key: bionic-cmake-cache-01
+    # - name: Git checkout
+    #   uses: actions/checkout@v2
+    #   with:
+    #     fetch-depth: 0
 
-    - name: Build & Test
-      run: |
-        mkdir -p build
-        pushd build
-        cmake -DNO_MANPAGES=TRUE ..
-        make -j
-        cpack
-        popd
 
-    - name: Upload to packagecloud/nightly
-      if: github.ref == 'refs/heads/master'
-      run: >
-        curl
-        -u "${{ secrets.PACKAGECLOUD_TOKEN }}:"
-        -F "package[distro_version_id]=190"
-        -F "package[package_file]=@$(ls build/deb/vvflow-*.deb | head -n1)"
-        -v https://packagecloud.io/api/v1/repos/vvflow/nightly/packages.json
+    # - name: Cache pip packages
+    #   id: cache-pip
+    #   uses: actions/cache@v2
+    #   with:
+    #     path: ~/.cache/pip
+    #     key: ${{ matrix.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+
+    # - name: Install pip packages
+    #   if: steps.cache-pip.outputs.cache-hit != 'true'
+    #   run: |
+    #     pip3 install -r pytest/requirements.txt
+
+    # - name: Cache CMakeFiles
+    #   uses: actions/cache@v2
+    #   with:
+    #     path: |
+    #       build
+    #       ~build/deb
+    #     key: ${{ matrix.os }}-cmake-cache-01
+
+    # - name: Build & Test
+    #   run: |
+    #     mkdir -p build
+    #     pushd build
+    #     cmake -DNO_MANPAGES=TRUE ..
+    #     make -j
+    #     cpack
+    #     popd
+
+    # - name: Upload to packagecloud/nightly
+    #   if: github.ref == 'refs/heads/master'
+    #   run: |
+    #     curl -u "${{ secrets.PACKAGECLOUD_TOKEN }}:"
+    #     https://packagecloud.io/api/v1/distributions.json > distro.json
+    #     &&
+    #     curl -u "${{ secrets.PACKAGECLOUD_TOKEN }}:"
+    #     -F "package[distro_version_id]=190"
+    #     -F "package[package_file]=@$(ls build/deb/vvflow-*.deb | head -n1)"
+    #     -v https://packagecloud.io/api/v1/repos/vvflow/nightly/packages.json
